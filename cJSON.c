@@ -589,6 +589,16 @@ static void update_offset(printbuffer * const buffer)
 static cJSON_bool compare_double(double a, double b)
 {
     double maxVal = fabs(a) > fabs(b) ? fabs(a) : fabs(b);
+    if (isnan(a) || isnan(b))
+    {
+        return false;
+    }
+    if (isinf(a) || isinf(b))
+    {
+        /* An infinity is only equal to itself, so +inf and -inf are not equal
+         * and no finite value is equal to an infinity. */
+        return (a == b);
+    }
     return (fabs(a - b) <= maxVal * DBL_EPSILON);
 }
 

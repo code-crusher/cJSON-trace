@@ -24,6 +24,8 @@
 #include "unity/src/unity.h"
 #include "common.h"
 
+#include <math.h>
+
 static cJSON_bool compare_from_string(const char * const a, const char * const b, const cJSON_bool case_sensitive)
 {
     cJSON *a_json = NULL;
@@ -70,6 +72,37 @@ static void cjson_compare_should_compare_numbers(void)
 
     TEST_ASSERT_FALSE(compare_from_string("1", "2", true));
     TEST_ASSERT_FALSE(compare_from_string("1", "2", false));
+}
+
+static void cjson_compare_should_compare_infinities(void)
+{
+    /* HUGE_VAL is positive infinity on IEEE 754 systems and available in C89,
+     * unlike the INFINITY macro which requires C99. */
+    cJSON *positive1 = cJSON_CreateNumber(HUGE_VAL);
+    cJSON *positive2 = cJSON_CreateNumber(HUGE_VAL);
+    cJSON *negative1 = cJSON_CreateNumber(-HUGE_VAL);
+    cJSON *negative2 = cJSON_CreateNumber(-HUGE_VAL);
+
+    /* equal infinities */
+    TEST_ASSERT_TRUE(cJSON_Compare(positive1, positive2, true));
+    TEST_ASSERT_TRUE(cJSON_Compare(positive1, positive2, false));
+    TEST_ASSERT_TRUE(cJSON_Compare(negative1, negative2, true));
+    TEST_ASSERT_TRUE(cJSON_Compare(negative1, negative2, false));
+
+    /* opposite infinities are not equal */
+    TEST_ASSERT_FALSE(cJSON_Compare(positive1, negative1, true));
+    TEST_ASSERT_FALSE(cJSON_Compare(positive1, negative1, false));
+    TEST_ASSERT_FALSE(cJSON_Compare(negative1, positive1, true));
+    TEST_ASSERT_FALSE(cJSON_Compare(negative1, positive1, false));
+
+    /* infinities are not equal to finite numbers */
+    TEST_ASSERT_FALSE(cJSON_Compare(positive1, cJSON_CreateNumber(1), true));
+    TEST_ASSERT_FALSE(cJSON_Compare(cJSON_CreateNumber(1), negative1, true));
+
+    cJSON_Delete(positive1);
+    cJSON_Delete(positive2);
+    cJSON_Delete(negative1);
+    cJSON_Delete(negative2);
 }
 
 static void cjson_compare_should_compare_booleans(void)
@@ -196,6 +229,7 @@ int CJSON_CDECL main(void)
     RUN_TEST(cjson_compare_should_compare_null_pointer_as_not_equal);
     RUN_TEST(cjson_compare_should_compare_invalid_as_not_equal);
     RUN_TEST(cjson_compare_should_compare_numbers);
+    RUN_TEST(cjson_compare_should_compare_infinities);
     RUN_TEST(cjson_compare_should_compare_booleans);
     RUN_TEST(cjson_compare_should_compare_null);
     RUN_TEST(cjson_compare_should_not_accept_invalid_types);
