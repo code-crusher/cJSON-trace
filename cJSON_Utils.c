@@ -594,11 +594,29 @@ static cJSON *sort_list(cJSON *list, const cJSON_bool case_sensitive)
 
 static void sort_object(cJSON * const object, const cJSON_bool case_sensitive)
 {
+    cJSON *tail = NULL;
+
     if (object == NULL)
     {
         return;
     }
     object->child = sort_list(object->child, case_sensitive);
+
+    /* Restore cJSON's invariant that the first element's prev pointer points
+     * to the last element. sort_list() only maintains the next pointers and
+     * the prev pointers of the elements it appends, leaving the prev pointer
+     * of the merged head dangling. cJSON relies on this invariant to append
+     * items in constant time, see add_item_to_array(). */
+    if (object->child == NULL)
+    {
+        return;
+    }
+    tail = object->child;
+    while (tail->next != NULL)
+    {
+        tail = tail->next;
+    }
+    object->child->prev = tail;
 }
 
 static cJSON_bool compare_json(cJSON *a, cJSON *b, const cJSON_bool case_sensitive)

@@ -165,6 +165,42 @@ static void sort_tests(void)
     cJSON_Delete(sortme);
 }
 
+static void sort_should_restore_last_element_pointer(void)
+{
+    /* cJSON keeps the invariant that the first element's prev pointer points
+     * to the last element (see add_item_to_array). sort_list() used to leave
+     * it dangling at an interior node, so deleting that node and adding a new
+     * member afterwards wrote to freed memory (heap-use-after-free). */
+    cJSON *sortme = cJSON_CreateObject();
+    cJSON *head = NULL;
+    cJSON *last = NULL;
+
+    TEST_ASSERT_NOT_NULL(sortme);
+    TEST_ASSERT_TRUE(cJSON_AddNumberToObject(sortme, "a", 1) != NULL);
+    TEST_ASSERT_TRUE(cJSON_AddNumberToObject(sortme, "c", 2) != NULL);
+    TEST_ASSERT_TRUE(cJSON_AddNumberToObject(sortme, "b", 3) != NULL);
+
+    cJSONUtils_SortObject(sortme);
+
+    head = sortme->child;
+    last = head;
+    while (last->next != NULL)
+    {
+        last = last->next;
+    }
+    TEST_ASSERT_EQUAL_STRING("a", head->string);
+    TEST_ASSERT_EQUAL_STRING("c", last->string);
+    TEST_ASSERT_TRUE(head->prev == last);
+
+    /* Delete the node that used to be head->prev and append another member. */
+    cJSON_DeleteItemFromObject(sortme, "b");
+    TEST_ASSERT_TRUE(cJSON_AddNumberToObject(sortme, "d", 4) != NULL);
+    TEST_ASSERT_EQUAL_INT(3, cJSON_GetArraySize(sortme));
+    TEST_ASSERT_EQUAL_STRING("d", last->next->string);
+
+    cJSON_Delete(sortme);
+}
+
 static void merge_tests(void)
 {
     size_t i = 0;
@@ -251,6 +287,7 @@ int main(void)
     RUN_TEST(json_pointer_tests);
     RUN_TEST(misc_tests);
     RUN_TEST(sort_tests);
+    RUN_TEST(sort_should_restore_last_element_pointer);
     RUN_TEST(merge_tests);
     RUN_TEST(merge_patch_should_not_read_freed_memory_when_patch_is_subtree);
     RUN_TEST(generate_merge_tests);
