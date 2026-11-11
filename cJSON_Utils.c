@@ -601,8 +601,15 @@ static void sort_object(cJSON * const object, const cJSON_bool case_sensitive)
     object->child = sort_list(object->child, case_sensitive);
 }
 
-static cJSON_bool compare_json(cJSON *a, cJSON *b, const cJSON_bool case_sensitive)
+static cJSON_bool compare_json(cJSON *a, cJSON *b, const cJSON_bool case_sensitive, size_t depth)
 {
+    if (depth > CJSON_NESTING_LIMIT)
+    {
+        /* Deeper than the parser would ever accept: fail safe instead of
+         * recursing without bound (CVE-2026-67215). */
+        return false;
+    }
+
     if ((a == NULL) || (b == NULL) || ((a->type & 0xFF) != (b->type & 0xFF)))
     {
         /* mismatched type. */
@@ -635,7 +642,7 @@ static cJSON_bool compare_json(cJSON *a, cJSON *b, const cJSON_bool case_sensiti
         case cJSON_Array:
             for ((void)(a = a->child), b = b->child; (a != NULL) && (b != NULL); (void)(a = a->next), b = b->next)
             {
-                cJSON_bool identical = compare_json(a, b, case_sensitive);
+                cJSON_bool identical = compare_json(a, b, case_sensitive, depth + 1);
                 if (!identical)
                 {
                     return false;
@@ -664,7 +671,7 @@ static cJSON_bool compare_json(cJSON *a, cJSON *b, const cJSON_bool case_sensiti
                     /* missing member */
                     return false;
                 }
-                identical = compare_json(a, b, case_sensitive);
+                identical = compare_json(a, b, case_sensitive, depth + 1);
                 if (!identical)
                 {
                     return false;
@@ -804,6 +811,70 @@ static void overwrite_item(cJSON * const root, const cJSON replacement)
     memcpy(root, &replacement, sizeof(cJSON));
 }
 
+/* Number of array/object levels in a value subtree, using the same notion of
+ * nesting as the parser and cJSON_Compare: a scalar contributes nothing, a
+ * container contributes one level plus the deepest of its children.
+ * Recursion is self-bounding, so attacker-shaped values cannot exhaust the
+ * stack here. */
+static size_t patch_value_depth_rec(const cJSON * const node, size_t recursion_depth)
+{
+    const cJSON *child = NULL;
+    size_t depth = 0;
+
+    if ((node == NULL) || ((node->type & 0xFF) != cJSON_Array && (node->type & 0xFF) != cJSON_Object))
+    {
+        return 0;
+    }
+    if (recursion_depth > CJSON_NESTING_LIMIT)
+    {
+        /* Bail out of the measurement itself: the value is already too deep. */
+        return recursion_depth;
+    }
+
+    for (child = node->child; child != NULL; child = child->next)
+    {
+        size_t child_depth = 1 + patch_value_depth_rec(child, recursion_depth + 1);
+        if (child_depth > depth)
+        {
+            depth = child_depth;
+        }
+        if (depth > CJSON_NESTING_LIMIT)
+        {
+            return depth;
+        }
+    }
+
+    return depth;
+}
+
+static size_t patch_value_depth(const cJSON * const node)
+{
+    return patch_value_depth_rec(node, 0);
+}
+
+/* Depth of the node a JSON Pointer addresses, counting path segments. A raw
+ * '/' is always a separator ('/' inside a key is escaped as ~1), so the number
+ * of separators is the depth of the addressed node, with the root at 0. */
+static size_t pointer_depth(const unsigned char *pointer)
+{
+    size_t depth = 0;
+
+    if (pointer == NULL)
+    {
+        return 0;
+    }
+
+    for (; *pointer != '\0'; pointer++)
+    {
+        if (*pointer == '/')
+        {
+            depth++;
+        }
+    }
+
+    return depth;
+}
+
 static int apply_patch(cJSON *object, const cJSON *patch, const cJSON_bool case_sensitive)
 {
     cJSON *path = NULL;
@@ -831,7 +902,7 @@ static int apply_patch(cJSON *object, const cJSON *patch, const cJSON_bool case_
     else if (opcode == TEST)
     {
         /* compare value: {...} with the given path */
-        status = !compare_json(get_item_from_pointer(object, path->valuestring, case_sensitive), get_object_item(patch, "value", case_sensitive), case_sensitive);
+        status = !compare_json(get_item_from_pointer(object, path->valuestring, case_sensitive), get_object_item(patch, "value", case_sensitive), case_sensitive, 0);
         goto cleanup;
     }
 
@@ -863,6 +934,14 @@ static int apply_patch(cJSON *object, const cJSON *patch, const cJSON_bool case_
             {
                 /* out of memory for add/replace. */
                 status = 8;
+                goto cleanup;
+            }
+
+            if (patch_value_depth(value) > CJSON_NESTING_LIMIT)
+            {
+                /* Replacing the root with an over-limit value would build a
+                 * document that recursive passes cannot handle (CVE-2026-67215). */
+                status = 12;
                 goto cleanup;
             }
 
@@ -978,7 +1057,18 @@ static int apply_patch(cJSON *object, const cJSON *patch, const cJSON_bool case_
         status = 9;
         goto cleanup;
     }
-    else if (cJSON_IsArray(parent))
+
+    /* Refuse grafts that would push the document past the nesting limit:
+     * repeated add/copy must not amplify a document into one whose depth
+     * exhausts the stack in recursive passes (CVE-2026-67215). The grafted
+     * value lands one level below its parent. */
+    if ((pointer_depth(parent_pointer) + patch_value_depth(value)) > CJSON_NESTING_LIMIT)
+    {
+        status = 12;
+        goto cleanup;
+    }
+
+    if (cJSON_IsArray(parent))
     {
         if (strcmp((char*)child_pointer, "-") == 0)
         {
@@ -1453,7 +1543,7 @@ static cJSON *generate_merge_patch(cJSON * const from, cJSON * const to, const c
         else
         {
             /* object key exists in both objects */
-            if (!compare_json(from_child, to_child, case_sensitive))
+            if (!compare_json(from_child, to_child, case_sensitive, 0))
             {
                 /* not identical --> generate a patch */
                 cJSON_AddItemToObject(patch, to_child->string, cJSONUtils_GenerateMergePatch(from_child, to_child));

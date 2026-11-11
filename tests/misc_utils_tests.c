@@ -70,11 +70,152 @@ static void cjson_utils_functions_shouldnt_crash_with_null_pointers(void)
     cJSON_Delete(item);
 }
 
+/* Build {"lvl": {"lvl": ... {"end": 1} ... }} with `levels` nested objects. */
+static cJSON *build_nested_object(int levels)
+{
+    cJSON *root = cJSON_CreateObject();
+    cJSON *current = root;
+    int i = 0;
+
+    if (root == NULL)
+    {
+        return NULL;
+    }
+
+    for (i = 0; i < levels; i++)
+    {
+        cJSON *next = cJSON_CreateObject();
+        if (next == NULL)
+        {
+            cJSON_Delete(root);
+            return NULL;
+        }
+        cJSON_AddItemToObject(current, "lvl", next);
+        current = next;
+    }
+    cJSON_AddNumberToObject(current, "end", 1);
+
+    return root;
+}
+
+/* Append `count` "/lvl" segments to `path`. */
+static void append_levels(char *path, size_t path_size, int count)
+{
+    int i = 0;
+
+    for (i = 0; i < count; i++)
+    {
+        strncat(path, "/lvl", path_size - strlen(path) - 1);
+    }
+}
+
+static void apply_patches_should_reject_grafts_past_the_nesting_limit(void)
+{
+    /* CVE-2026-67215: a single "copy" must not graft a deep subtree under an
+     * already deep parent. Here both halves are 600 levels, so the result
+     * would nest ~1200 levels, beyond CJSON_NESTING_LIMIT. */
+    const int levels = 600;
+    cJSON *inner = build_nested_object(levels);
+    cJSON *doc = cJSON_CreateObject();
+    cJSON *patch = cJSON_CreateArray();
+    cJSON *op = cJSON_CreateObject();
+    char path[8192] = "/d";
+
+    TEST_ASSERT_NOT_NULL(inner);
+    TEST_ASSERT_NOT_NULL(doc);
+    TEST_ASSERT_NOT_NULL(patch);
+    TEST_ASSERT_NOT_NULL(op);
+
+    cJSON_AddItemToObject(doc, "d", inner);
+    append_levels(path, sizeof(path), levels - 1);
+    strncat(path, "/copy", sizeof(path) - strlen(path) - 1);
+
+    cJSON_AddStringToObject(op, "op", "copy");
+    cJSON_AddStringToObject(op, "from", "/d");
+    cJSON_AddStringToObject(op, "path", path);
+    cJSON_AddItemToArray(patch, op);
+
+    TEST_ASSERT_NOT_EQUAL(0, cJSONUtils_ApplyPatches(doc, patch));
+    TEST_ASSERT_NOT_EQUAL(0, cJSONUtils_ApplyPatchesCaseSensitive(doc, patch));
+
+    cJSON_Delete(doc);
+    cJSON_Delete(patch);
+}
+
+static void apply_patches_should_allow_grafts_within_the_nesting_limit(void)
+{
+    cJSON *doc = cJSON_Parse("{\"a\": {\"b\": 1}}");
+    cJSON *patch = cJSON_Parse("[{\"op\": \"copy\", \"from\": \"/a\", \"path\": \"/c\"}]");
+
+    TEST_ASSERT_NOT_NULL(doc);
+    TEST_ASSERT_NOT_NULL(patch);
+
+    TEST_ASSERT_EQUAL_INT(0, cJSONUtils_ApplyPatches(doc, patch));
+    TEST_ASSERT_NOT_NULL(cJSON_GetObjectItem(doc, "c"));
+    TEST_ASSERT_TRUE(cJSON_Compare(cJSON_GetObjectItem(doc, "a"), cJSON_GetObjectItem(doc, "c"), true));
+
+    cJSON_Delete(doc);
+    cJSON_Delete(patch);
+}
+
+static void apply_patches_should_reject_an_over_deep_root_replacement(void)
+{
+    cJSON *doc = cJSON_Parse("{\"a\": 1}");
+    cJSON *patch = cJSON_CreateArray();
+    cJSON *op = cJSON_CreateObject();
+    cJSON *value = build_nested_object(CJSON_NESTING_LIMIT);
+
+    TEST_ASSERT_NOT_NULL(doc);
+    TEST_ASSERT_NOT_NULL(patch);
+    TEST_ASSERT_NOT_NULL(op);
+    TEST_ASSERT_NOT_NULL(value);
+
+    cJSON_AddStringToObject(op, "op", "replace");
+    cJSON_AddStringToObject(op, "path", "");
+    cJSON_AddItemToObject(op, "value", value);
+    cJSON_AddItemToArray(patch, op);
+
+    TEST_ASSERT_NOT_EQUAL(0, cJSONUtils_ApplyPatches(doc, patch));
+
+    cJSON_Delete(doc);
+    cJSON_Delete(patch);
+}
+
+static void test_operation_should_not_recurse_without_bound(void)
+{
+    /* CVE-2026-67215: a "test" operation compares against attacker-supplied
+     * values. Over-limit nesting must fail instead of exhausting the stack. */
+    cJSON *doc = cJSON_CreateObject();
+    cJSON *patch = cJSON_CreateArray();
+    cJSON *op = cJSON_CreateObject();
+    cJSON *value = build_nested_object(CJSON_NESTING_LIMIT + 500);
+
+    TEST_ASSERT_NOT_NULL(doc);
+    TEST_ASSERT_NOT_NULL(patch);
+    TEST_ASSERT_NOT_NULL(op);
+    TEST_ASSERT_NOT_NULL(value);
+
+    cJSON_AddItemToObject(doc, "deep", build_nested_object(CJSON_NESTING_LIMIT + 500));
+    cJSON_AddStringToObject(op, "op", "test");
+    cJSON_AddStringToObject(op, "path", "/deep");
+    cJSON_AddItemToObject(op, "value", value);
+    cJSON_AddItemToArray(patch, op);
+
+    TEST_ASSERT_NOT_EQUAL(0, cJSONUtils_ApplyPatches(doc, patch));
+
+    cJSON_Delete(doc);
+    cJSON_Delete(patch);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
 
     RUN_TEST(cjson_utils_functions_shouldnt_crash_with_null_pointers);
+    RUN_TEST(apply_patches_should_reject_grafts_past_the_nesting_limit);
+    RUN_TEST(apply_patches_should_allow_grafts_within_the_nesting_limit);
+    RUN_TEST(apply_patches_should_reject_an_over_deep_root_replacement);
+    RUN_TEST(test_operation_should_not_recurse_without_bound);
 
     return UNITY_END();
 }

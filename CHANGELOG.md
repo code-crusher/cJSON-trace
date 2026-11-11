@@ -1,3 +1,11 @@
+Unreleased
+======
+Security:
+------
+* Bound recursion in cJSON_Compare, compare_json and JSON Patch application by CJSON_NESTING_LIMIT (CVE-2026-67215)
+* Compare object members in O(n log n) instead of O(n^2) per level in cJSON_Compare and compare_json (CVE-2026-67216)
+* Reject JSON Patch add/copy/replace operations that would build a document nested beyond CJSON_NESTING_LIMIT (CVE-2026-67215)
+
 1.7.19 (Sep 9, 2025)
 ======
 Fixes:
