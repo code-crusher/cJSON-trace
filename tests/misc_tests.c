@@ -523,6 +523,92 @@ static void ensure_should_fail_on_failed_realloc(void)
     TEST_ASSERT_NULL_MESSAGE(ensure(&buffer, 200), "Ensure didn't fail with failing realloc.");
 }
 
+static size_t print_test_allocations = 0;
+static size_t print_test_deallocations = 0;
+static size_t print_test_allocation_limit = (size_t)-1;
+
+static void *CJSON_CDECL print_test_malloc(size_t size)
+{
+    if (print_test_allocations >= print_test_allocation_limit)
+    {
+        return NULL;
+    }
+
+    print_test_allocations++;
+    return malloc(size);
+}
+
+static void CJSON_CDECL print_test_free(void *pointer)
+{
+    print_test_deallocations++;
+    free(pointer);
+}
+
+static void reset_print_test_counters(void)
+{
+    print_test_allocations = 0;
+    print_test_deallocations = 0;
+    print_test_allocation_limit = (size_t)-1;
+}
+
+static void print_should_return_null_if_buffer_allocation_fails(void)
+{
+    internal_hooks hooks = { print_test_malloc, print_test_free, NULL };
+    cJSON *item = cJSON_CreateString("test");
+
+    reset_print_test_counters();
+    print_test_allocation_limit = 0;
+
+    TEST_ASSERT_NULL_MESSAGE(print(item, false, &hooks), "Print should fail if the buffer allocation fails.");
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(0U, (unsigned int)print_test_deallocations, "Nothing should be deallocated on the first allocation failure.");
+
+    cJSON_Delete(item);
+}
+
+static void print_should_return_null_if_reallocation_fails(void)
+{
+    internal_hooks hooks = { print_test_malloc, print_test_free, failing_realloc };
+    cJSON *item = cJSON_CreateString("test");
+
+    reset_print_test_counters();
+
+    TEST_ASSERT_NULL_MESSAGE(print(item, false, &hooks), "Print should fail if the reallocation of the buffer fails.");
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(1U, (unsigned int)print_test_deallocations, "The temporary buffer should be deallocated when reallocation fails.");
+
+    cJSON_Delete(item);
+}
+
+static void print_should_return_null_if_copy_allocation_fails(void)
+{
+    internal_hooks hooks = { print_test_malloc, print_test_free, NULL };
+    cJSON *item = cJSON_CreateString("test");
+
+    reset_print_test_counters();
+    print_test_allocation_limit = 1;
+
+    TEST_ASSERT_NULL_MESSAGE(print(item, false, &hooks), "Print should fail if the allocation of the result buffer fails.");
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(1U, (unsigned int)print_test_deallocations, "The temporary buffer should be deallocated when the copy allocation fails.");
+
+    cJSON_Delete(item);
+}
+
+static void print_should_succeed_without_reallocation_hook(void)
+{
+    internal_hooks hooks = { print_test_malloc, print_test_free, NULL };
+    cJSON *item = cJSON_CreateString("test");
+    unsigned char *printed = NULL;
+
+    reset_print_test_counters();
+
+    printed = print(item, false, &hooks);
+    TEST_ASSERT_NOT_NULL(printed);
+    TEST_ASSERT_EQUAL_STRING("\"test\"", (char*)printed);
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(1U, (unsigned int)print_test_deallocations, "The temporary buffer should be deallocated on success.");
+
+    free(printed);
+    cJSON_Delete(item);
+}
+
 static void skip_utf8_bom_should_skip_bom(void)
 {
     const unsigned char string[] = "\xEF\xBB\xBF{}";
@@ -820,6 +906,10 @@ int CJSON_CDECL main(void)
     RUN_TEST(cjson_functions_should_not_crash_with_null_pointers);
     RUN_TEST(cjson_set_valuestring_should_return_null_if_strings_overlap);
     RUN_TEST(ensure_should_fail_on_failed_realloc);
+    RUN_TEST(print_should_return_null_if_buffer_allocation_fails);
+    RUN_TEST(print_should_return_null_if_reallocation_fails);
+    RUN_TEST(print_should_return_null_if_copy_allocation_fails);
+    RUN_TEST(print_should_succeed_without_reallocation_hook);
     RUN_TEST(skip_utf8_bom_should_skip_bom);
     RUN_TEST(skip_utf8_bom_should_not_skip_bom_if_not_at_beginning);
     RUN_TEST(cjson_get_string_value_should_get_a_string);

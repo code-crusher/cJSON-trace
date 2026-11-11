@@ -1288,16 +1288,12 @@ static unsigned char *print(const cJSON * const item, cJSON_bool format, const i
     return printed;
 
 fail:
+    /* printed is only assigned after the buffer was printed successfully, every
+     * path that reaches this label leaves it NULL, so there is nothing to free. */
     if (buffer->buffer != NULL)
     {
         hooks->deallocate(buffer->buffer);
         buffer->buffer = NULL;
-    }
-
-    if (printed != NULL)
-    {
-        hooks->deallocate(printed);
-        printed = NULL;
     }
 
     return NULL;
