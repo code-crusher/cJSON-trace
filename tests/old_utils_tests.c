@@ -85,6 +85,50 @@ static void json_pointer_tests(void)
     cJSON_Delete(root);
 }
 
+static void json_pointer_decode_tests(void)
+{
+    /* RFC 6901: '~1' decodes to '/' and '~0' decodes to '~' in a JSON
+     * pointer. The patch implementation decodes the last pointer token
+     * in place, so exercise it through cJSONUtils_ApplyPatches. */
+    cJSON *object = cJSON_Parse("{\"a/b\": 1, \"m~n\": 2}");
+    cJSON *patches = NULL;
+
+    TEST_ASSERT_NOT_NULL(object);
+
+    /* 'remove' with a '~1' escape must address the key "a/b" */
+    patches = cJSON_Parse("[{\"op\":\"remove\",\"path\":\"/a~1b\"}]");
+    TEST_ASSERT_NOT_NULL(patches);
+    TEST_ASSERT_EQUAL_INT(0, cJSONUtils_ApplyPatches(object, patches));
+    TEST_ASSERT_NULL(cJSON_GetObjectItem(object, "a/b"));
+    cJSON_Delete(patches);
+
+    /* 'remove' with a '~0' escape must address the key "m~n" */
+    patches = cJSON_Parse("[{\"op\":\"remove\",\"path\":\"/m~0n\"}]");
+    TEST_ASSERT_NOT_NULL(patches);
+    TEST_ASSERT_EQUAL_INT(0, cJSONUtils_ApplyPatches(object, patches));
+    TEST_ASSERT_NULL(cJSON_GetObjectItem(object, "m~n"));
+    cJSON_Delete(patches);
+
+    /* 'add' must create the key with all escapes decoded */
+    patches = cJSON_Parse("[{\"op\":\"add\",\"path\":\"/x~0y~1z\",\"value\": 3}]");
+    TEST_ASSERT_NOT_NULL(patches);
+    TEST_ASSERT_EQUAL_INT(0, cJSONUtils_ApplyPatchesCaseSensitive(object, patches));
+    TEST_ASSERT_NOT_NULL(cJSON_GetObjectItemCaseSensitive(object, "x~y/z"));
+    cJSON_Delete(patches);
+
+    /* 'replace' with a '~1' escape must address the key "a/b" */
+    cJSON_Delete(object);
+    object = cJSON_Parse("{\"a/b\": 1}");
+    TEST_ASSERT_NOT_NULL(object);
+    patches = cJSON_Parse("[{\"op\":\"replace\",\"path\":\"/a~1b\",\"value\": 4}]");
+    TEST_ASSERT_NOT_NULL(patches);
+    TEST_ASSERT_EQUAL_INT(0, cJSONUtils_ApplyPatchesCaseSensitive(object, patches));
+    TEST_ASSERT_EQUAL_INT(4, cJSON_GetObjectItemCaseSensitive(object, "a/b")->valueint);
+    cJSON_Delete(patches);
+
+    cJSON_Delete(object);
+}
+
 static void misc_tests(void)
 {
     /* Misc tests */
@@ -249,6 +293,7 @@ int main(void)
     UNITY_BEGIN();
 
     RUN_TEST(json_pointer_tests);
+    RUN_TEST(json_pointer_decode_tests);
     RUN_TEST(misc_tests);
     RUN_TEST(sort_tests);
     RUN_TEST(merge_tests);
