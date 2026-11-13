@@ -1,3 +1,9 @@
+Unreleased
+======
+Fixes:
+------
+* Fix heap-use-after-free in cJSONUtils_MergePatch when an object patch is a subtree of the target or the target is merged with itself, see #1060 and #1020
+
 1.7.19 (Sep 9, 2025)
 ======
 Fixes:

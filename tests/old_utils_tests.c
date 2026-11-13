@@ -222,6 +222,73 @@ static void merge_patch_should_not_read_freed_memory_when_patch_is_subtree(void)
     cJSON_Delete(result);
 }
 
+static void merge_patch_should_not_read_freed_memory_when_object_patch_is_subtree(void)
+{
+    /* Same as above, but with an object patch that is a subtree of the
+     * target. While merging, the loop over the patch's children detaches
+     * and frees target subtrees, which used to free the patch itself.
+     * Reading patch_child->string and patch_child->next afterwards was a
+     * heap-use-after-free under AddressSanitizer before the fix. */
+    cJSON *target = cJSON_Parse("{\"a\":{\"a\":1}}");
+    cJSON *patch = cJSON_GetObjectItem(target, "a");
+    cJSON *result = NULL;
+
+    TEST_ASSERT_NOT_NULL(target);
+    TEST_ASSERT_NOT_NULL(patch);
+
+    result = cJSONUtils_MergePatch(target, patch);
+    TEST_ASSERT_NOT_NULL(result);
+    TEST_ASSERT_TRUE(cJSON_IsObject(result));
+    TEST_ASSERT_EQUAL_INT(1, cJSON_GetObjectItem(result, "a")->valueint);
+
+    cJSON_Delete(result);
+}
+
+static void merge_patch_should_not_read_freed_memory_when_target_is_merged_with_itself(void)
+{
+    /* Merging a target with itself. The NULL member makes merge_patch
+     * delete members from the target while it is iterating over the very
+     * same members as the patch. */
+    cJSON *target = cJSON_Parse("{\"a\":null,\"b\":1}");
+    cJSON *result = NULL;
+    cJSON *b = NULL;
+
+    TEST_ASSERT_NOT_NULL(target);
+
+    result = cJSONUtils_MergePatch(target, target);
+    TEST_ASSERT_NOT_NULL(result);
+    TEST_ASSERT_TRUE(cJSON_IsObject(result));
+    TEST_ASSERT_NULL(cJSON_GetObjectItem(result, "a"));
+    b = cJSON_GetObjectItem(result, "b");
+    TEST_ASSERT_NOT_NULL(b);
+    TEST_ASSERT_EQUAL_INT(1, b->valueint);
+
+    cJSON_Delete(result);
+}
+
+static void merge_patch_should_not_read_freed_memory_when_patch_is_deeply_nested_subtree(void)
+{
+    /* The detached and merged target member contains the whole patch, so
+     * the remaining patch members were already freed when the loop
+     * continued to the next one. */
+    cJSON *target = cJSON_Parse("{\"b\":{\"a\":{\"b\":1,\"c\":2}}}");
+    cJSON *patch = cJSON_GetObjectItem(cJSON_GetObjectItem(target, "b"), "a");
+    cJSON *result = NULL;
+
+    TEST_ASSERT_NOT_NULL(target);
+    TEST_ASSERT_NOT_NULL(patch);
+
+    result = cJSONUtils_MergePatch(target, patch);
+    TEST_ASSERT_NOT_NULL(result);
+    TEST_ASSERT_TRUE(cJSON_IsObject(result));
+    /* the patch replaces target's "b" with the patch members themselves */
+    TEST_ASSERT_EQUAL_INT(2, cJSON_GetArraySize(result));
+    TEST_ASSERT_EQUAL_INT(1, cJSON_GetObjectItem(result, "b")->valueint);
+    TEST_ASSERT_EQUAL_INT(2, cJSON_GetObjectItem(result, "c")->valueint);
+
+    cJSON_Delete(result);
+}
+
 static void generate_merge_tests(void)
 {
     size_t i = 0;
@@ -253,6 +320,9 @@ int main(void)
     RUN_TEST(sort_tests);
     RUN_TEST(merge_tests);
     RUN_TEST(merge_patch_should_not_read_freed_memory_when_patch_is_subtree);
+    RUN_TEST(merge_patch_should_not_read_freed_memory_when_object_patch_is_subtree);
+    RUN_TEST(merge_patch_should_not_read_freed_memory_when_target_is_merged_with_itself);
+    RUN_TEST(merge_patch_should_not_read_freed_memory_when_patch_is_deeply_nested_subtree);
     RUN_TEST(generate_merge_tests);
 
     return UNITY_END();

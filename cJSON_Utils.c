@@ -1325,9 +1325,10 @@ static cJSON *merge_patch(cJSON *target, const cJSON * const patch, const cJSON_
     if (!cJSON_IsObject(patch))
     {
         /* scalar value, array or NULL, just duplicate.
-         * Duplicate the patch first in case it is a subtree of target,
-         * otherwise cJSON_Delete(target) would free the patch memory
-         * and the subsequent cJSON_Duplicate would read freed memory. */
+         * Duplicate the patch before deleting the target, in case the
+         * patch is a subtree of the target, otherwise cJSON_Delete(target)
+         * would free the patch memory and the subsequent cJSON_Duplicate
+         * would read freed memory. */
         cJSON *duplicate = cJSON_Duplicate(patch, 1);
         cJSON_Delete(target);
         return duplicate;
@@ -1382,14 +1383,38 @@ static cJSON *merge_patch(cJSON *target, const cJSON * const patch, const cJSON_
     return target;
 }
 
+static cJSON *merge_patch_copy(cJSON *target, const cJSON * const patch, const cJSON_bool case_sensitive)
+{
+    /* The patch may share nodes with the target, for example when it is a
+     * subtree of the target itself. The merge modifies and frees parts of
+     * the target, so such a patch would be read after being freed. Work on
+     * a private copy of the patch instead, so that merge_patch never
+     * accesses memory that it freed itself. */
+    cJSON *patch_copy = cJSON_Duplicate(patch, 1);
+    cJSON *result = NULL;
+
+    if ((patch != NULL) && (patch_copy == NULL))
+    {
+        /* cJSON_Duplicate failed, out of memory. Consume the target like
+         * the other out of memory paths in merge_patch do. */
+        cJSON_Delete(target);
+        return NULL;
+    }
+
+    result = merge_patch(target, patch_copy, case_sensitive);
+    cJSON_Delete(patch_copy);
+
+    return result;
+}
+
 CJSON_PUBLIC(cJSON *) cJSONUtils_MergePatch(cJSON *target, const cJSON * const patch)
 {
-    return merge_patch(target, patch, false);
+    return merge_patch_copy(target, patch, false);
 }
 
 CJSON_PUBLIC(cJSON *) cJSONUtils_MergePatchCaseSensitive(cJSON *target, const cJSON * const patch)
 {
-    return merge_patch(target, patch, true);
+    return merge_patch_copy(target, patch, true);
 }
 
 static cJSON *generate_merge_patch(cJSON * const from, cJSON * const to, const cJSON_bool case_sensitive)
