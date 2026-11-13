@@ -150,6 +150,27 @@ static void cjson_get_object_item_case_sensitive_should_not_crash_with_array(voi
     cJSON_Delete(array);
 }
 
+/* Regression test for #1023 (CVE-2019-1010239): an array built through the
+ * programmatic API has children without a key, so looking up a named item must
+ * not pass a NULL pointer to strcmp. */
+static void cjson_get_object_item_case_sensitive_should_not_crash_with_created_array(void)
+{
+    cJSON *array = NULL;
+    cJSON *found = NULL;
+
+    array = cJSON_CreateArray();
+    TEST_ASSERT_NOT_NULL(array);
+    TEST_ASSERT_TRUE(cJSON_AddItemToArray(array, cJSON_CreateString("x")));
+
+    found = cJSON_GetObjectItemCaseSensitive(array, "key");
+    TEST_ASSERT_NULL(found);
+
+    found = cJSON_GetObjectItem(array, "key");
+    TEST_ASSERT_NULL(found);
+
+    cJSON_Delete(array);
+}
+
 static void typecheck_functions_should_check_type(void)
 {
     cJSON invalid[1];
@@ -809,6 +830,7 @@ int CJSON_CDECL main(void)
     RUN_TEST(cjson_get_object_item_case_sensitive_should_get_object_items);
     RUN_TEST(cjson_get_object_item_should_not_crash_with_array);
     RUN_TEST(cjson_get_object_item_case_sensitive_should_not_crash_with_array);
+    RUN_TEST(cjson_get_object_item_case_sensitive_should_not_crash_with_created_array);
     RUN_TEST(typecheck_functions_should_check_type);
     RUN_TEST(cjson_should_not_parse_to_deeply_nested_jsons);
     RUN_TEST(cjson_should_not_follow_too_deep_circular_references);
