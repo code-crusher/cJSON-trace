@@ -206,6 +206,48 @@ static void typecheck_functions_should_check_type(void)
     TEST_ASSERT_TRUE(cJSON_IsRaw(item));
 }
 
+/* Create a JSON value nested `depth` levels deep, either as arrays
+ * ("[[[...0...]]]") or as objects ("{\"a\":{\"a\":...0...}}"). */
+static char *create_nested_json(size_t depth, cJSON_bool object)
+{
+    const size_t opening_length = object ? (sizeof("{\"a\":") - 1) : (sizeof("[") - 1);
+    size_t position = 0;
+    size_t i = 0;
+    char *json = NULL;
+
+    json = (char*)malloc((depth * (opening_length + 1)) + sizeof("0"));
+    if (json == NULL)
+    {
+        return NULL;
+    }
+
+    for (i = 0; i < depth; i++)
+    {
+        if (object)
+        {
+            memcpy(json + position, "{\"a\":", opening_length);
+            position += opening_length;
+        }
+        else
+        {
+            json[position] = '[';
+            position++;
+        }
+    }
+
+    json[position] = '0';
+    position++;
+
+    for (i = 0; i < depth; i++)
+    {
+        json[position] = object ? '}' : ']';
+        position++;
+    }
+    json[position] = '\0';
+
+    return json;
+}
+
 static void cjson_should_not_parse_to_deeply_nested_jsons(void)
 {
     char deep_json[CJSON_NESTING_LIMIT + 1];
@@ -218,6 +260,56 @@ static void cjson_should_not_parse_to_deeply_nested_jsons(void)
     deep_json[sizeof(deep_json) - 1] = '\0';
 
     TEST_ASSERT_NULL_MESSAGE(cJSON_Parse(deep_json), "To deep JSONs should not be parsed.");
+}
+
+static void assert_nested_json_round_trips(size_t depth, cJSON_bool object)
+{
+    char *json = create_nested_json(depth, object);
+    cJSON *parsed = NULL;
+    char *printed = NULL;
+
+    TEST_ASSERT_NOT_NULL_MESSAGE(json, "Failed to create nested JSON.");
+
+    parsed = cJSON_Parse(json);
+    TEST_ASSERT_NOT_NULL_MESSAGE(parsed, "JSON nested up to the limit should be parsed.");
+
+    printed = cJSON_PrintUnformatted(parsed);
+    TEST_ASSERT_NOT_NULL_MESSAGE(printed, "JSON nested up to the limit should be printed.");
+    TEST_ASSERT_EQUAL_STRING_MESSAGE(json, printed, "Printed JSON differs from the input.");
+
+    free(printed);
+    cJSON_Delete(parsed);
+    free(json);
+}
+
+/* The nesting limit has to leave enough stack for the recursive parser and
+ * printer, even in sanitizer builds where every frame is much larger. Parsing
+ * and printing a value at exactly the limit has to work, otherwise the limit
+ * would be more restrictive than documented. */
+static void cjson_should_handle_jsons_nested_up_to_the_limit(void)
+{
+    cJSON_bool object = false;
+
+    for (object = false; object <= true; object++)
+    {
+        assert_nested_json_round_trips(1, object);
+        assert_nested_json_round_trips(CJSON_NESTING_LIMIT, object);
+    }
+}
+
+static void cjson_should_not_parse_jsons_nested_beyond_the_limit(void)
+{
+    cJSON_bool object = false;
+
+    for (object = false; object <= true; object++)
+    {
+        char *json = create_nested_json(CJSON_NESTING_LIMIT + 1, object);
+
+        TEST_ASSERT_NOT_NULL_MESSAGE(json, "Failed to create nested JSON.");
+        TEST_ASSERT_NULL_MESSAGE(cJSON_Parse(json), "JSON nested beyond the limit should not be parsed.");
+
+        free(json);
+    }
 }
 
 static void cjson_should_not_follow_too_deep_circular_references(void)
@@ -811,6 +903,8 @@ int CJSON_CDECL main(void)
     RUN_TEST(cjson_get_object_item_case_sensitive_should_not_crash_with_array);
     RUN_TEST(typecheck_functions_should_check_type);
     RUN_TEST(cjson_should_not_parse_to_deeply_nested_jsons);
+    RUN_TEST(cjson_should_handle_jsons_nested_up_to_the_limit);
+    RUN_TEST(cjson_should_not_parse_jsons_nested_beyond_the_limit);
     RUN_TEST(cjson_should_not_follow_too_deep_circular_references);
     RUN_TEST(cjson_set_number_value_should_set_numbers);
     RUN_TEST(cjson_detach_item_via_pointer_should_detach_items);

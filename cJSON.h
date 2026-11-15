@@ -132,9 +132,22 @@ typedef struct cJSON_Hooks
 typedef int cJSON_bool;
 
 /* Limits how deeply nested arrays/objects can be before cJSON rejects to parse them.
- * This is to prevent stack overflows. */
+ * This is to prevent stack overflows. The limit bounds the number of recursive
+ * parser calls, not the amount of stack they consume, and sanitizer builds need
+ * several times more stack per level than optimized ones, so they get a lower
+ * default to stay clear of the stack limit. */
 #ifndef CJSON_NESTING_LIMIT
+#if defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_THREAD__)
+#define CJSON_NESTING_LIMIT 128
+#elif defined(__has_feature)
+#if __has_feature(address_sanitizer) || __has_feature(memory_sanitizer) || __has_feature(thread_sanitizer) || __has_feature(undefined_behavior_sanitizer)
+#define CJSON_NESTING_LIMIT 128
+#else
 #define CJSON_NESTING_LIMIT 1000
+#endif
+#else
+#define CJSON_NESTING_LIMIT 1000
+#endif
 #endif
 
 /* Limits the length of circular references can be before cJSON rejects to parse them.

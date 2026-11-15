@@ -565,6 +565,8 @@ The maximum length of a floating point literal that cJSON supports is currently 
 
 cJSON doesn't support arrays and objects that are nested too deeply because this would result in a stack overflow. To prevent this cJSON limits the depth to `CJSON_NESTING_LIMIT` which is 1000 by default but can be changed at compile time.
 
+The limit counts recursive calls, not the amount of stack they consume, so the depth that actually fits on the stack depends on the build. Sanitizer instrumentation (AddressSanitizer, MemorySanitizer, ThreadSanitizer, UndefinedBehaviorSanitizer) and disabled optimization make every recursive call use several times more stack than in an optimized build. To keep the default safe in those builds as well, `CJSON_NESTING_LIMIT` defaults to 128 when cJSON is compiled with such instrumentation, and to 1000 otherwise. Defining `CJSON_NESTING_LIMIT` explicitly overrides both defaults.
+
 #### Thread Safety
 
 In general cJSON is **not thread safe**.
