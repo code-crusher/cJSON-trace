@@ -44,6 +44,7 @@
 #include <limits.h>
 #include <ctype.h>
 #include <float.h>
+#include <stdint.h>
 
 #ifdef ENABLE_LOCALES
 #include <locale.h>
@@ -453,8 +454,13 @@ CJSON_PUBLIC(char*) cJSON_SetValuestring(cJSON *object, const char *valuestring)
 
     if (v1_len <= v2_len)
     {
-        /* strcpy does not handle overlapping string: [X1, X2] [Y1, Y2] => X2 < Y1 or Y2 < X1 */
-        if (!( valuestring + v1_len < object->valuestring || object->valuestring + v2_len < valuestring ))
+        /* strcpy does not handle overlapping string: [X1, X2] [Y1, Y2] => X2 < Y1 or Y2 < X1.
+           The two strings may point into different arrays, so compare their addresses as integers instead of using relational operators on the pointers (which is undefined behavior). */
+        uintptr_t valuestring_end = (uintptr_t)(valuestring + v1_len);
+        uintptr_t object_valuestring_start = (uintptr_t)object->valuestring;
+        uintptr_t object_valuestring_end = (uintptr_t)(object->valuestring + v2_len);
+        uintptr_t valuestring_start = (uintptr_t)valuestring;
+        if (!(valuestring_end < object_valuestring_start || object_valuestring_end < valuestring_start))
         {
             return NULL;
         }

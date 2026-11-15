@@ -507,6 +507,18 @@ static void cjson_set_valuestring_should_return_null_if_strings_overlap(void)
     cJSON_Delete(obj);
 }
 
+static void cjson_set_valuestring_should_accept_unrelated_strings_of_equal_length(void)
+{
+    /* Issue #1106: the overlap check compared pointers from unrelated objects with relational operators (undefined behavior). */
+    char unrelated[6] = "abcde";
+    cJSON *obj = cJSON_Parse("\"12345\"");
+    char *result = cJSON_SetValuestring(obj, unrelated);
+    TEST_ASSERT_NOT_NULL(result);
+    TEST_ASSERT_EQUAL_STRING("abcde", obj->valuestring);
+    TEST_ASSERT_EQUAL_STRING("abcde", result);
+    cJSON_Delete(obj);
+}
+
 static void *CJSON_CDECL failing_realloc(void *pointer, size_t size)
 {
     (void)size;
@@ -819,6 +831,7 @@ int CJSON_CDECL main(void)
     RUN_TEST(cjson_replace_item_in_object_should_preserve_name);
     RUN_TEST(cjson_functions_should_not_crash_with_null_pointers);
     RUN_TEST(cjson_set_valuestring_should_return_null_if_strings_overlap);
+    RUN_TEST(cjson_set_valuestring_should_accept_unrelated_strings_of_equal_length);
     RUN_TEST(ensure_should_fail_on_failed_realloc);
     RUN_TEST(skip_utf8_bom_should_skip_bom);
     RUN_TEST(skip_utf8_bom_should_not_skip_bom_if_not_at_beginning);
