@@ -222,6 +222,50 @@ static void merge_patch_should_not_read_freed_memory_when_patch_is_subtree(void)
     cJSON_Delete(result);
 }
 
+static void apply_patches_should_not_use_freed_memory_when_patches_are_part_of_object(void)
+{
+    /* When the patch array is part of the object being patched, applying a
+     * patch that removes the patch array must not leave ApplyPatches
+     * iterating over freed memory. The apply functions used to read
+     * current_patch->next from a deleted patch list (use-after-free). */
+    cJSON *doc = NULL;
+    cJSON *patched = NULL;
+    int status = 0;
+
+    /* case-insensitive variant: the remove patch deletes the patch array itself */
+    doc = cJSON_Parse("{\"patches\":[{\"op\":\"remove\",\"path\":\"/patches\"}]}");
+    TEST_ASSERT_NOT_NULL(doc);
+    patched = cJSON_GetObjectItem(doc, "patches");
+    TEST_ASSERT_NOT_NULL(patched);
+
+    status = cJSONUtils_ApplyPatches(doc, patched);
+    TEST_ASSERT_EQUAL_INT(0, status);
+    TEST_ASSERT_NULL(cJSON_GetObjectItemCaseSensitive(doc, "patches"));
+    cJSON_Delete(doc);
+
+    /* case-sensitive variant */
+    doc = cJSON_Parse("{\"patches\":[{\"op\":\"remove\",\"path\":\"/patches\"}]}");
+    TEST_ASSERT_NOT_NULL(doc);
+    patched = cJSON_GetObjectItemCaseSensitive(doc, "patches");
+    TEST_ASSERT_NOT_NULL(patched);
+
+    status = cJSONUtils_ApplyPatchesCaseSensitive(doc, patched);
+    TEST_ASSERT_EQUAL_INT(0, status);
+    TEST_ASSERT_NULL(cJSON_GetObjectItemCaseSensitive(doc, "patches"));
+    cJSON_Delete(doc);
+
+    /* a patch following the self-removal must still be applied from the copy */
+    doc = cJSON_Parse("{\"a\":1,\"patches\":[{\"op\":\"remove\",\"path\":\"/patches\"},{\"op\":\"replace\",\"path\":\"/a\",\"value\":2}]}");
+    TEST_ASSERT_NOT_NULL(doc);
+    patched = cJSON_GetObjectItemCaseSensitive(doc, "patches");
+    TEST_ASSERT_NOT_NULL(patched);
+
+    status = cJSONUtils_ApplyPatches(doc, patched);
+    TEST_ASSERT_EQUAL_INT(0, status);
+    TEST_ASSERT_EQUAL_INT(2, cJSON_GetObjectItemCaseSensitive(doc, "a")->valueint);
+    cJSON_Delete(doc);
+}
+
 static void generate_merge_tests(void)
 {
     size_t i = 0;
@@ -253,6 +297,7 @@ int main(void)
     RUN_TEST(sort_tests);
     RUN_TEST(merge_tests);
     RUN_TEST(merge_patch_should_not_read_freed_memory_when_patch_is_subtree);
+    RUN_TEST(apply_patches_should_not_use_freed_memory_when_patches_are_part_of_object);
     RUN_TEST(generate_merge_tests);
 
     return UNITY_END();
