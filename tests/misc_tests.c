@@ -258,6 +258,36 @@ static void cjson_set_number_value_should_set_numbers(void)
     TEST_ASSERT_EQUAL_DOUBLE(-1 + (double)INT_MIN, number->valuedouble);
 }
 
+static void cjson_set_number_value_should_handle_nan(void)
+{
+    cJSON number[1] = {{NULL, NULL, NULL, cJSON_Number, NULL, 0, 0, NULL}};
+    double nan_value = strtod("nan", NULL);
+
+    /* NaN cannot be represented as an integer, casting it would be undefined behavior */
+    TEST_ASSERT_DOUBLE_IS_NAN(cJSON_SetNumberValue(number, nan_value));
+    TEST_ASSERT_EQUAL(0, number->valueint);
+    TEST_ASSERT_DOUBLE_IS_NAN(number->valuedouble);
+}
+
+static void cjson_create_number_should_handle_nan(void)
+{
+    double nan_value = strtod("nan", NULL);
+    cJSON *number = cJSON_CreateNumber(nan_value);
+    char *printed = NULL;
+
+    TEST_ASSERT_NOT_NULL(number);
+    /* NaN cannot be represented as an integer, casting it would be undefined behavior */
+    TEST_ASSERT_EQUAL(0, number->valueint);
+    TEST_ASSERT_DOUBLE_IS_NAN(number->valuedouble);
+
+    /* NaN is printed as null */
+    printed = cJSON_Print(number);
+    TEST_ASSERT_EQUAL_STRING("null", printed);
+    cJSON_free(printed);
+
+    cJSON_Delete(number);
+}
+
 static void cjson_detach_item_via_pointer_should_detach_items(void)
 {
     cJSON list[4];
@@ -813,6 +843,8 @@ int CJSON_CDECL main(void)
     RUN_TEST(cjson_should_not_parse_to_deeply_nested_jsons);
     RUN_TEST(cjson_should_not_follow_too_deep_circular_references);
     RUN_TEST(cjson_set_number_value_should_set_numbers);
+    RUN_TEST(cjson_set_number_value_should_handle_nan);
+    RUN_TEST(cjson_create_number_should_handle_nan);
     RUN_TEST(cjson_detach_item_via_pointer_should_detach_items);
     RUN_TEST(cjson_detach_item_via_pointer_should_return_null_if_item_prev_is_null);
     RUN_TEST(cjson_replace_item_via_pointer_should_replace_items);
