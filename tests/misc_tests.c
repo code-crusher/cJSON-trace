@@ -656,6 +656,48 @@ static void cjson_add_item_to_object_should_not_use_after_free_when_string_is_al
     cJSON_Delete(object);
 }
 
+static void cjson_replace_item_in_object_should_not_use_after_free_when_string_is_aliased(void)
+{
+    cJSON *object = cJSON_Parse("{\"name\":1}");
+    cJSON *replacement = cJSON_Parse("{\"name\":2}");
+    cJSON *item = NULL;
+    char *printed = NULL;
+
+    TEST_ASSERT_NOT_NULL(object);
+    TEST_ASSERT_NOT_NULL(replacement);
+
+    item = cJSON_DetachItemFromObject(replacement, "name");
+    TEST_ASSERT_NOT_NULL(item);
+
+    /* The following should not have a use after free
+     * that would show up in valgrind or with AddressSanitizer */
+    TEST_ASSERT_TRUE(cJSON_ReplaceItemInObject(object, item->string, item));
+
+    printed = cJSON_PrintUnformatted(object);
+    TEST_ASSERT_EQUAL_STRING("{\"name\":2}", printed);
+    cJSON_free(printed);
+
+    cJSON_Delete(replacement);
+    cJSON_Delete(object);
+
+    object = cJSON_Parse("{\"name\":1}");
+    replacement = cJSON_Parse("{\"name\":2}");
+    TEST_ASSERT_NOT_NULL(object);
+    TEST_ASSERT_NOT_NULL(replacement);
+
+    item = cJSON_DetachItemFromObjectCaseSensitive(replacement, "name");
+    TEST_ASSERT_NOT_NULL(item);
+
+    TEST_ASSERT_TRUE(cJSON_ReplaceItemInObjectCaseSensitive(object, item->string, item));
+
+    printed = cJSON_PrintUnformatted(object);
+    TEST_ASSERT_EQUAL_STRING("{\"name\":2}", printed);
+    cJSON_free(printed);
+
+    cJSON_Delete(replacement);
+    cJSON_Delete(object);
+}
+
 static void cjson_delete_item_from_array_should_not_broken_list_structure(void)
 {
     const char expected_json1[] = "{\"rd\":[{\"a\":\"123\"}]}";
@@ -829,6 +871,7 @@ int CJSON_CDECL main(void)
     RUN_TEST(cjson_create_array_reference_should_create_an_array_reference);
     RUN_TEST(cjson_add_item_to_object_or_array_should_not_add_itself);
     RUN_TEST(cjson_add_item_to_object_should_not_use_after_free_when_string_is_aliased);
+    RUN_TEST(cjson_replace_item_in_object_should_not_use_after_free_when_string_is_aliased);
     RUN_TEST(cjson_delete_item_from_array_should_not_broken_list_structure);
     RUN_TEST(cjson_set_valuestring_to_object_should_not_leak_memory);
     RUN_TEST(cjson_set_bool_value_must_not_break_objects);
