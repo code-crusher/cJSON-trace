@@ -3,6 +3,7 @@
 Ultralightweight JSON parser in ANSI C.
 
 ## Table of contents
+* [Maintenance Status](#maintenance-status)
 * [License](#license)
 * [Usage](#usage)
   * [Welcome to cJSON](#welcome-to-cjson)
@@ -33,6 +34,18 @@ Ultralightweight JSON parser in ANSI C.
     * [Case Sensitivity](#case-sensitivity)
     * [Duplicate Object Members](#duplicate-object-members)
   * [Enjoy cJSON!](#enjoy-cjson)
+
+## Maintenance Status
+
+cJSON no longer has enough active maintainer capacity to guarantee ongoing
+maintenance. Issues, security reports, and pull requests may not receive a
+prompt response, and no reliable maintenance or response-time commitment can
+be provided. See [#1080](https://github.com/DaveGamble/cJSON/issues/1080) for
+details.
+
+If your project requires timely security fixes, active development, or
+predictable release cycles, consider using or maintaining an actively
+maintained fork of cJSON.
 
 ## License
 
@@ -586,5 +599,5 @@ cJSON supports parsing and printing JSON that contains objects that have multipl
 # Enjoy cJSON!
 
 - Dave Gamble (original author)
-- Max Bruckner and Alan Wang (current maintainer)
+- Max Bruckner and Alan Wang (former maintainers)
 - and the other [cJSON contributors](CONTRIBUTORS.md)
