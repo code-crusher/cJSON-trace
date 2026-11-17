@@ -97,6 +97,58 @@ static void parse_with_opts_should_parse_utf8_bom(void)
     cJSON_Delete(without_bom);
 }
 
+static void parse_with_opts_should_only_accept_json_whitespace(void)
+{
+    /* JSON whitespace is only space, tab, LF and CR. Other control bytes must not be skipped. */
+    const unsigned char other_whitespace[][8] = {
+        { '[', 0x00, '1', ']', '\0' },
+        { '[', 0x01, '1', ']', '\0' },
+        { '[', 0x02, '1', ']', '\0' },
+        { '[', 0x0b, '1', ']', '\0' },
+        { '[', 0x0c, '1', ']', '\0' },
+        { '[', 0x1f, '1', ']', '\0' },
+        { '[', 0x7f, '1', ']', '\0' }
+    };
+    size_t i = 0;
+
+    for (i = 0; i < sizeof(other_whitespace) / sizeof(other_whitespace[0]); i++)
+    {
+        const unsigned char *input = other_whitespace[i];
+        size_t length = sizeof(other_whitespace[i]);
+        cJSON *item = cJSON_ParseWithLengthOpts((const char *)input, length, NULL, true);
+        TEST_ASSERT_NULL_MESSAGE(item, "Control byte was accepted as whitespace.");
+        cJSON_Delete(item);
+    }
+}
+
+static void parse_with_opts_should_accept_json_whitespace(void)
+{
+    const unsigned char valid_whitespace[][8] = {
+        { '[', ' ',  '1', ']', '\0' },
+        { '[', '\t', '1', ']', '\0' },
+        { '[', '\n', '1', ']', '\0' },
+        { '[', '\r', '1', ']', '\0' }
+    };
+    size_t i = 0;
+
+    for (i = 0; i < sizeof(valid_whitespace) / sizeof(valid_whitespace[0]); i++)
+    {
+        const unsigned char *input = valid_whitespace[i];
+        size_t length = sizeof(valid_whitespace[i]);
+        cJSON *item = cJSON_ParseWithLengthOpts((const char *)input, length, NULL, true);
+        TEST_ASSERT_NOT_NULL_MESSAGE(item, "Valid JSON whitespace was rejected.");
+        cJSON_Delete(item);
+    }
+}
+
+static void parse_with_opts_should_not_skip_null_literal_as_whitespace(void)
+{
+    const unsigned char input[] = { 0x00, 'n', 'u', 'l', 'l', '\0' };
+    cJSON *item = cJSON_ParseWithLengthOpts((const char *)input, sizeof(input), NULL, true);
+    TEST_ASSERT_NULL_MESSAGE(item, "Leading NUL byte was accepted as whitespace.");
+    cJSON_Delete(item);
+}
+
 int CJSON_CDECL main(void)
 {
     UNITY_BEGIN();
@@ -107,6 +159,9 @@ int CJSON_CDECL main(void)
     RUN_TEST(parse_with_opts_should_require_null_if_requested);
     RUN_TEST(parse_with_opts_should_return_parse_end);
     RUN_TEST(parse_with_opts_should_parse_utf8_bom);
+    RUN_TEST(parse_with_opts_should_only_accept_json_whitespace);
+    RUN_TEST(parse_with_opts_should_accept_json_whitespace);
+    RUN_TEST(parse_with_opts_should_not_skip_null_literal_as_whitespace);
 
     return UNITY_END();
 }

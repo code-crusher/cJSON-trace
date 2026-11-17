@@ -1099,7 +1099,9 @@ static parse_buffer *buffer_skip_whitespace(parse_buffer * const buffer)
         return buffer;
     }
 
-    while (can_access_at_index(buffer, 0) && (buffer_at_offset(buffer)[0] <= 32))
+    while (can_access_at_index(buffer, 0) &&
+           (buffer_at_offset(buffer)[0] == ' ' || buffer_at_offset(buffer)[0] == '\t' ||
+            buffer_at_offset(buffer)[0] == '\n' || buffer_at_offset(buffer)[0] == '\r'))
     {
        buffer->offset++;
     }
