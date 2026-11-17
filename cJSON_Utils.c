@@ -68,6 +68,11 @@ static unsigned char* cJSONUtils_strdup(const unsigned char* const string)
     size_t length = 0;
     unsigned char *copy = NULL;
 
+    if (string == NULL)
+    {
+        return NULL;
+    }
+
     length = strlen((const char*)string) + sizeof("");
     copy = (unsigned char*) cJSON_malloc(length);
     if (copy == NULL)
@@ -623,6 +628,10 @@ static cJSON_bool compare_json(cJSON *a, cJSON *b, const cJSON_bool case_sensiti
 
         case cJSON_String:
             /* string mismatch. */
+            if ((a->valuestring == NULL) || (b->valuestring == NULL))
+            {
+                return false;
+            }
             if (strcmp(a->valuestring, b->valuestring) != 0)
             {
                 return false;
@@ -742,7 +751,7 @@ enum patch_operation { INVALID, ADD, REMOVE, REPLACE, MOVE, COPY, TEST };
 static enum patch_operation decode_patch_operation(const cJSON * const patch, const cJSON_bool case_sensitive)
 {
     cJSON *operation = get_object_item(patch, "op", case_sensitive);
-    if (!cJSON_IsString(operation))
+    if (!cJSON_IsString(operation) || (operation->valuestring == NULL))
     {
         return INVALID;
     }
@@ -815,7 +824,7 @@ static int apply_patch(cJSON *object, const cJSON *patch, const cJSON_bool case_
     int status = 0;
 
     path = get_object_item(patch, "path", case_sensitive);
-    if (!cJSON_IsString(path))
+    if (!cJSON_IsString(path) || (path->valuestring == NULL))
     {
         /* malformed patch. */
         status = 2;
@@ -906,7 +915,7 @@ static int apply_patch(cJSON *object, const cJSON *patch, const cJSON_bool case_
     if ((opcode == MOVE) || (opcode == COPY))
     {
         cJSON *from = get_object_item(patch, "from", case_sensitive);
-        if (!cJSON_IsString(from))
+        if (!cJSON_IsString(from) || (from->valuestring == NULL))
         {
             /* missing "from" for copy/move. */
             status = 4;
@@ -1161,7 +1170,14 @@ static void create_patches(cJSON * const patches, const unsigned char * const pa
             return;
 
         case cJSON_String:
-            if (strcmp(from->valuestring, to->valuestring) != 0)
+            if ((from->valuestring == NULL) || (to->valuestring == NULL))
+            {
+                if (from->valuestring != to->valuestring)
+                {
+                    compose_patch(patches, (const unsigned char*)"replace", path, NULL, to);
+                }
+            }
+            else if (strcmp(from->valuestring, to->valuestring) != 0)
             {
                 compose_patch(patches, (const unsigned char*)"replace", path, NULL, to);
             }

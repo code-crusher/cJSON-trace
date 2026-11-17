@@ -70,11 +70,99 @@ static void cjson_utils_functions_shouldnt_crash_with_null_pointers(void)
     cJSON_Delete(item);
 }
 
+static cJSON *create_string_with_null_valuestring(const char * const string)
+{
+    cJSON *item = cJSON_CreateString(string);
+    TEST_ASSERT_NOT_NULL(item);
+
+    /* simulate a malformed item where the value string is missing */
+    cJSON_free(item->valuestring);
+    item->valuestring = NULL;
+
+    return item;
+}
+
+static int apply_single_patch(cJSON *object, cJSON *patch)
+{
+    int status = 0;
+    cJSON *patches = cJSON_CreateArray();
+
+    TEST_ASSERT_NOT_NULL(patches);
+    cJSON_AddItemToArray(patches, patch);
+
+    status = cJSONUtils_ApplyPatches(object, patches);
+
+    /* deleting the array also deletes the patch */
+    cJSON_Delete(patches);
+
+    return status;
+}
+
+static void cjson_utils_shouldnt_crash_with_null_valuestring_in_patches(void)
+{
+    cJSON *object = cJSON_CreateObject();
+    cJSON *patch = NULL;
+
+    TEST_ASSERT_NOT_NULL(object);
+    cJSON_AddNumberToObject(object, "k", 1);
+    cJSON_AddStringToObject(object, "s", "abc");
+
+    /* "path" is a string item without a value string */
+    patch = cJSON_CreateObject();
+    cJSON_AddItemToObject(patch, "op", cJSON_CreateString("remove"));
+    cJSON_AddItemToObject(patch, "path", create_string_with_null_valuestring("/k"));
+    TEST_ASSERT_NOT_EQUAL(0, apply_single_patch(object, patch));
+
+    /* "from" is a string item without a value string */
+    patch = cJSON_CreateObject();
+    cJSON_AddItemToObject(patch, "op", cJSON_CreateString("move"));
+    cJSON_AddItemToObject(patch, "path", cJSON_CreateString("/a"));
+    cJSON_AddItemToObject(patch, "from", create_string_with_null_valuestring("/k"));
+    TEST_ASSERT_NOT_EQUAL(0, apply_single_patch(object, patch));
+
+    /* "value" is a string item without a value string (test operation) */
+    patch = cJSON_CreateObject();
+    cJSON_AddItemToObject(patch, "op", cJSON_CreateString("test"));
+    cJSON_AddItemToObject(patch, "path", cJSON_CreateString("/s"));
+    cJSON_AddItemToObject(patch, "value", create_string_with_null_valuestring("abc"));
+    TEST_ASSERT_NOT_EQUAL(0, apply_single_patch(object, patch));
+
+    /* "value" is a string item without a value string (add operation) */
+    patch = cJSON_CreateObject();
+    cJSON_AddItemToObject(patch, "op", cJSON_CreateString("add"));
+    cJSON_AddItemToObject(patch, "path", cJSON_CreateString("/z"));
+    cJSON_AddItemToObject(patch, "value", create_string_with_null_valuestring("x"));
+    TEST_ASSERT_EQUAL_INT(0, apply_single_patch(object, patch));
+
+    cJSON_Delete(object);
+}
+
+static void cjson_utils_shouldnt_crash_generating_patches_with_null_valuestring(void)
+{
+    cJSON *from = cJSON_CreateObject();
+    cJSON *to = cJSON_CreateObject();
+    cJSON *patches = NULL;
+
+    TEST_ASSERT_NOT_NULL(from);
+    TEST_ASSERT_NOT_NULL(to);
+    cJSON_AddStringToObject(from, "s", "abc");
+    cJSON_AddItemToObject(to, "s", create_string_with_null_valuestring("abc"));
+
+    patches = cJSONUtils_GeneratePatches(from, to);
+    TEST_ASSERT_NOT_NULL(patches);
+
+    cJSON_Delete(patches);
+    cJSON_Delete(from);
+    cJSON_Delete(to);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
 
     RUN_TEST(cjson_utils_functions_shouldnt_crash_with_null_pointers);
+    RUN_TEST(cjson_utils_shouldnt_crash_with_null_valuestring_in_patches);
+    RUN_TEST(cjson_utils_shouldnt_crash_generating_patches_with_null_valuestring);
 
     return UNITY_END();
 }
