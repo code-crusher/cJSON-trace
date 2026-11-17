@@ -93,6 +93,13 @@ static error global_error = { NULL, 0 };
 
 CJSON_PUBLIC(const char *) cJSON_GetErrorPtr(void)
 {
+    /* global_error is only set when a parse fails on a non-NULL buffer, so it
+     * may still be in its NULL-initialized state (e.g. after cJSON_Parse(NULL)
+     * or a successful parse). */
+    if (global_error.json == NULL)
+    {
+        return NULL;
+    }
     return (const char*) (global_error.json + global_error.position);
 }
 

@@ -29,6 +29,10 @@ static void parse_with_opts_should_handle_null(void)
     const char *error_pointer = NULL;
     cJSON *item = NULL;
     TEST_ASSERT_NULL_MESSAGE(cJSON_ParseWithOpts(NULL, &error_pointer, false), "Failed to handle NULL input.");
+    /* the error pointer must not be dereferenceable when parsing a NULL buffer (issue #1035) */
+    TEST_ASSERT_NULL_MESSAGE(cJSON_GetErrorPtr(), "Error pointer should be NULL when parsing a NULL buffer.");
+    TEST_ASSERT_NULL_MESSAGE(cJSON_ParseWithLengthOpts(NULL, 0, NULL, false), "Failed to handle NULL buffer with length 0.");
+    TEST_ASSERT_NULL_MESSAGE(cJSON_GetErrorPtr(), "Error pointer should be NULL when parsing a NULL buffer with length 0.");
     item = cJSON_ParseWithOpts("{}", NULL, false);
     TEST_ASSERT_NOT_NULL_MESSAGE(item, "Failed to handle NULL error pointer.");
     cJSON_Delete(item);
