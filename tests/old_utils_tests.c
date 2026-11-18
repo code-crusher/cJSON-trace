@@ -222,6 +222,120 @@ static void merge_patch_should_not_read_freed_memory_when_patch_is_subtree(void)
     cJSON_Delete(result);
 }
 
+static void merge_patch_should_not_make_the_target_pointer_dangle(void)
+{
+    /* merge_patch used to free the target and return a new item, so a
+     * caller that kept using its own pointer read freed memory. See #1022. */
+    cJSON *target = cJSON_CreateString("initial_value");
+    cJSON *patch = cJSON_CreateObject();
+    cJSON *result = NULL;
+
+    TEST_ASSERT_NOT_NULL(cJSON_AddStringToObject(patch, "new_node", "value"));
+
+    /* the target is not an object, so it is replaced by the merged result.
+     * The replacement has to happen in place, the pointer of the caller
+     * must not become dangling. */
+    result = cJSONUtils_MergePatch(target, patch);
+    TEST_ASSERT_EQUAL_PTR(target, result);
+    TEST_ASSERT_TRUE(cJSON_IsObject(result));
+
+    /* this used to trigger the heap-use-after-free reported in #1022 */
+    TEST_ASSERT_NOT_NULL(cJSON_AddStringToObject(result, "trigger_node", "crash_now"));
+
+    /* the merged object must contain the patch contents */
+    TEST_ASSERT_EQUAL_STRING("value", cJSON_GetStringValue(cJSON_GetObjectItem(result, "new_node")));
+    TEST_ASSERT_EQUAL_STRING("crash_now", cJSON_GetStringValue(cJSON_GetObjectItem(result, "trigger_node")));
+
+    cJSON_Delete(result);
+    cJSON_Delete(patch);
+}
+
+static void merge_patch_should_not_read_freed_memory_when_patch_is_detached(void)
+{
+    /* When the patch is an object that is a subtree of the target, the
+     * loop in merge_patch deletes the detached target item, which may be
+     * the patch itself. It then continued to walk the freed patch and to
+     * use the freed patch memory. See #1022. */
+    cJSON *target = cJSON_Parse("{\"p\":{\"p\":null},\"q\":1}");
+    cJSON *patch = NULL;
+    cJSON *result = NULL;
+    char *printed = NULL;
+
+    TEST_ASSERT_NOT_NULL(target);
+    patch = cJSON_GetObjectItemCaseSensitive(target, "p");
+    TEST_ASSERT_NOT_NULL(patch);
+
+    /* the patch deletes the item it is part of, so the loop used to walk
+     * freed memory after the first patch element was applied */
+    result = cJSONUtils_MergePatch(target, patch);
+    TEST_ASSERT_EQUAL_PTR(target, result);
+
+    printed = cJSON_PrintUnformatted(result);
+    TEST_ASSERT_NOT_NULL(printed);
+    /* applying {"p":null,"q":1} to itself removes "p" and keeps "q" */
+    TEST_ASSERT_EQUAL_STRING("{\"q\":1}", printed);
+    free(printed);
+
+    cJSON_Delete(result);
+}
+
+static void merge_patch_should_keep_the_target_within_its_parent(void)
+{
+    /* A target that is a member of a parent object or array has to keep its
+     * position in the parent, even if its contents are replaced. */
+    cJSON *parent = cJSON_Parse("[\"first\",\"second\"]");
+    cJSON *target = NULL;
+    cJSON *patch = cJSON_Parse("{\"a\":1}");
+    cJSON *result = NULL;
+    char *printed = NULL;
+
+    TEST_ASSERT_NOT_NULL(parent);
+    TEST_ASSERT_NOT_NULL(patch);
+
+    target = cJSON_GetArrayItem(parent, 0);
+    TEST_ASSERT_NOT_NULL(target);
+
+    result = cJSONUtils_MergePatch(target, patch);
+    TEST_ASSERT_EQUAL_PTR(target, result);
+
+    printed = cJSON_PrintUnformatted(parent);
+    TEST_ASSERT_NOT_NULL(printed);
+    TEST_ASSERT_EQUAL_STRING("[{\"a\":1},\"second\"]", printed);
+    free(printed);
+
+    /* the target keeps the key of the item it replaced, so it can be found
+     * again in the parent */
+    TEST_ASSERT_EQUAL_PTR(target, cJSON_GetArrayItem(parent, 0));
+
+    cJSON_Delete(parent);
+    cJSON_Delete(patch);
+}
+
+static void merge_patch_should_not_read_freed_memory_when_target_is_array(void)
+{
+    /* The patch is an object and a subtree of a target that is an array, so
+     * merge_patch has to replace the contents of the array target in place
+     * while the patch is still part of it. See #1022. */
+    cJSON *target = cJSON_Parse("[{\"a\":\"b\"}]");
+    cJSON *patch = NULL;
+    cJSON *result = NULL;
+    char *printed = NULL;
+
+    TEST_ASSERT_NOT_NULL(target);
+    patch = target->child;
+    TEST_ASSERT_NOT_NULL(patch);
+
+    result = cJSONUtils_MergePatch(target, patch);
+    TEST_ASSERT_EQUAL_PTR(target, result);
+
+    printed = cJSON_PrintUnformatted(result);
+    TEST_ASSERT_NOT_NULL(printed);
+    TEST_ASSERT_EQUAL_STRING("{\"a\":\"b\"}", printed);
+    free(printed);
+
+    cJSON_Delete(result);
+}
+
 static void generate_merge_tests(void)
 {
     size_t i = 0;
@@ -253,6 +367,10 @@ int main(void)
     RUN_TEST(sort_tests);
     RUN_TEST(merge_tests);
     RUN_TEST(merge_patch_should_not_read_freed_memory_when_patch_is_subtree);
+    RUN_TEST(merge_patch_should_not_make_the_target_pointer_dangle);
+    RUN_TEST(merge_patch_should_not_read_freed_memory_when_patch_is_detached);
+    RUN_TEST(merge_patch_should_keep_the_target_within_its_parent);
+    RUN_TEST(merge_patch_should_not_read_freed_memory_when_target_is_array);
     RUN_TEST(generate_merge_tests);
 
     return UNITY_END();

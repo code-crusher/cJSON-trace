@@ -1318,28 +1318,97 @@ CJSON_PUBLIC(void) cJSONUtils_SortObjectCaseSensitive(cJSON * const object)
     sort_object(object, true);
 }
 
+/* Replace the contents of 'target' with the contents of 'replacement' and
+ * free the old contents of 'target'. The address of 'target', its position
+ * within a parent and its key are kept, so that pointers held by the caller
+ * and by the parent of 'target' stay valid. */
+static void merge_patch_adopt(cJSON * const target, cJSON * const replacement)
+{
+    cJSON old_target = *target;
+    char * const replacement_string = replacement->string;
+    const int replacement_is_const = replacement->type & cJSON_StringIsConst;
+
+    *target = *replacement;
+    /* keep the key of the target and the flag that describes the key */
+    target->string = old_target.string;
+    target->type = (target->type & ~cJSON_StringIsConst)
+                 | (old_target.type & cJSON_StringIsConst);
+    /* keep the position of the target within its parent */
+    target->next = old_target.next;
+    target->prev = old_target.prev;
+
+    /* the replacement node now owns the old contents of the target. Clear
+     * its sibling pointers so that freeing it does not touch the siblings
+     * of the target and give it the key of the replacement. */
+    old_target.next = NULL;
+    old_target.prev = NULL;
+    old_target.string = replacement_string;
+    old_target.type = (old_target.type & ~cJSON_StringIsConst) | replacement_is_const;
+    *replacement = old_target;
+    cJSON_Delete(replacement);
+}
+
 static cJSON *merge_patch(cJSON *target, const cJSON * const patch, const cJSON_bool case_sensitive)
 {
     cJSON *patch_child = NULL;
+    cJSON *patch_copy = NULL;
 
     if (!cJSON_IsObject(patch))
     {
-        /* scalar value, array or NULL, just duplicate.
-         * Duplicate the patch first in case it is a subtree of target,
-         * otherwise cJSON_Delete(target) would free the patch memory
-         * and the subsequent cJSON_Duplicate would read freed memory. */
+        /* scalar value, array or NULL, just duplicate */
         cJSON *duplicate = cJSON_Duplicate(patch, 1);
+
+        if (duplicate == NULL)
+        {
+            cJSON_Delete(target);
+            return NULL;
+        }
+
+        if (target == NULL)
+        {
+            return duplicate;
+        }
+
+        /* replace the contents of the target in place, freeing the target
+         * would leave the pointer held by the caller dangling */
+        merge_patch_adopt(target, duplicate);
+        return target;
+    }
+
+    /* The patch may be a subtree of the target, so the steps below may free
+     * patch memory. Work on a private copy of the patch instead. This has to
+     * happen before the target is modified. */
+    patch_copy = cJSON_Duplicate(patch, 1);
+    if (patch_copy == NULL)
+    {
         cJSON_Delete(target);
-        return duplicate;
+        return NULL;
     }
 
     if (!cJSON_IsObject(target))
     {
-        cJSON_Delete(target);
-        target = cJSON_CreateObject();
+        cJSON *new_target = cJSON_CreateObject();
+
+        if (new_target == NULL)
+        {
+            cJSON_Delete(patch_copy);
+            cJSON_Delete(target);
+            return NULL;
+        }
+
+        if (target == NULL)
+        {
+            target = new_target;
+        }
+        else
+        {
+            /* replace the contents of the target in place, freeing the
+             * target would leave the pointer held by the caller dangling */
+            merge_patch_adopt(target, new_target);
+        }
     }
 
-    patch_child = patch->child;
+    patch_child = patch_copy->child;
     while (patch_child != NULL)
     {
         if (cJSON_IsNull(patch_child))
@@ -1371,14 +1440,24 @@ static cJSON *merge_patch(cJSON *target, const cJSON * const patch, const cJSON_
             replacement = merge_patch(replace_me, patch_child, case_sensitive);
             if (replacement == NULL)
             {
+                cJSON_Delete(patch_copy);
                 cJSON_Delete(target);
                 return NULL;
             }
 
-            cJSON_AddItemToObject(target, patch_child->string, replacement);
+            if (!cJSON_AddItemToObject(target, patch_child->string, replacement))
+            {
+                cJSON_Delete(replacement);
+                cJSON_Delete(patch_copy);
+                cJSON_Delete(target);
+                return NULL;
+            }
         }
         patch_child = patch_child->next;
     }
+
+    cJSON_Delete(patch_copy);
+
     return target;
 }
 
